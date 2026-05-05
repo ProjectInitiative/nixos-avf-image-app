@@ -36,15 +36,30 @@ class Install : ComponentActivity() {
 
         val b = intent.extras ?: return errorOut()
 
-        val asset = b.getSerializable("image", GitHubReleaseAsset::class.java)
-            ?: return errorOut()
-
         val m: String = b.getString("method")
             ?: return errorOut()
         val method = InstallMethods.getMethod(m)
             ?: return errorOut()
 
-        magic = InstallMagic(applicationContext, method, asset)
+        val asset = b.getSerializable("image", GitHubReleaseAsset::class.java)
+        val customUrl = b.getString("custom_url")
+        val customDigest = b.getString("custom_digest")
+        val customFileSource = b.getString("custom_file_source")
+
+        val hasCustomSource = customUrl != null || customFileSource != null
+
+        if (asset == null && !hasCustomSource) {
+            return errorOut()
+        }
+
+        magic = InstallMagic(
+            applicationContext,
+            method,
+            asset = asset,
+            customUrl = customUrl,
+            customDigest = customDigest,
+            customFileSource = customFileSource
+        )
 
         Log.w("Install", "launch activity composable")
         setContent {

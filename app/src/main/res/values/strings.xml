@@ -39,4 +39,15 @@
     <string name="install_err_network">Failed to download image! Check your network connection or go back and use \"Refresh\" button!</string>
 
     <string name="version">Version:</string>
+
+    <string name="custom_image_header">Custom Image</string>
+    <string name="custom_image_url_label">Image URL</string>
+    <string name="custom_image_digest_label">Digest (format: sha256:hex, optional)</string>
+    <string name="custom_image_pick_file">Pick .tar.gz file</string>
+    <string name="custom_image_selected_file">Selected: %1$s</string>
+    <string name="custom_image_install">Install Custom Image</string>
+    <string name="install_step_importing">Importing custom image</string>
+    <string name="install_from_url">Custom URL</string>
+    <string name="install_from_file">Local file</string>
+    <string name="custom_image_url_hint">https://example.com/image.tar.gz</string>
 </resources>

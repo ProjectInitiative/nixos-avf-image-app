@@ -17,7 +17,7 @@ suspend fun downloadFile(
     context: Context,
     fileUrl: String,
     fileName: String,
-    digest: String,
+    digest: String?,
     onProgress: (percent: Int) -> Unit,
 ): File? {
     return withContext(Dispatchers.IO) {
@@ -25,20 +25,26 @@ suspend fun downloadFile(
             val file = File(context.cacheDir, fileName)
             var retry = 0
 
-            val digestSplit = digest.split(":", limit = 2)
-            if (digestSplit.size != 2) {
-                throw IllegalArgumentException("Invalid digest format: $digest")
+            val digestAlgo: String?
+            val expectedHex: String?
+
+            if (digest != null) {
+                val digestSplit = digest.split(":", limit = 2)
+                if (digestSplit.size != 2) {
+                    throw IllegalArgumentException("Invalid digest format: $digest")
+                }
+                digestAlgo = when (digestSplit[0].lowercase()) {
+                    "sha256" -> "SHA-256"
+                    "sha512" -> "SHA-512"
+                    else -> throw IllegalArgumentException("Unsupported digest algorithm: ${digestSplit[0]}")
+                }
+                expectedHex = digestSplit[1].lowercase()
+                Log.d("DL", "Expected digest=${digest}, algo=${digestAlgo}, expectedHex=${expectedHex}")
+            } else {
+                digestAlgo = null
+                expectedHex = null
+                Log.d("DL", "No digest provided, skipping verification")
             }
-
-            val digestAlgo = when (digestSplit[0].lowercase()) {
-                "sha256" -> "SHA-256"
-                "sha512" -> "SHA-512"
-                else -> throw IllegalArgumentException("Unsupported digest algorithm: ${digestSplit[0]}")
-            }
-
-            val expectedHex = digestSplit[1].lowercase()
-
-            Log.d("DL", "Expected digest=${digest}, algo=${digestAlgo}, expectedHex=${expectedHex}")
 
             while (true) {
                 retry++
@@ -57,9 +63,8 @@ suspend fun downloadFile(
                     val response = client.newCall(request).execute()
                     val body = response.body ?: return@withContext null
 
-                    // re-use already existing file
                     if (file.exists() && body.contentLength() == file.length()) {
-                        onProgress(100) // update ui
+                        onProgress(100)
                         return@withContext file
                     }
 
@@ -84,38 +89,45 @@ suspend fun downloadFile(
                         onProgress,
                     )
 
-                    val digest = MessageDigest.getInstance(digestAlgo)
                     val outputStream = FileOutputStream(file, true)
-                    var digestStream: DigestStream
 
-                    if (alreadyDownloadedBytes < 1) {
-                        Log.d("DL", "Full download, hash during download")
-
-                        digestStream = DigestStream(progressStream, digest)
-
-                        digestStream.use { input ->
-                            outputStream.use { output ->
-                                input.copyTo(output)
+                    if (digestAlgo != null) {
+                        val md = MessageDigest.getInstance(digestAlgo)
+                        if (alreadyDownloadedBytes < 1) {
+                            Log.d("DL", "Full download, hash during download")
+                            DigestStream(progressStream, md).use { input ->
+                                outputStream.use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            if (!md.digest().contentEquals(hexToByteArray(expectedHex!!))) {
+                                Log.w("DL", "Hashsum mismatch - wanted ${expectedHex}")
+                                file.delete()
+                                continue
+                            }
+                        } else {
+                            Log.d("DL", "Partial, rehash fully")
+                            progressStream.use { input ->
+                                outputStream.use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            val fullDigest = MessageDigest.getInstance(digestAlgo)
+                            DigestStream(file.inputStream(), fullDigest).use { input ->
+                                input.copyTo(OutputStream.nullOutputStream())
+                            }
+                            if (!fullDigest.digest().contentEquals(hexToByteArray(expectedHex!!))) {
+                                Log.w("DL", "Hashsum mismatch - wanted ${expectedHex}")
+                                file.delete()
+                                continue
                             }
                         }
                     } else {
-                        Log.d("DL", "Partial, rehash fully")
-                        // data is only partial in this case, hash at the end
                         progressStream.use { input ->
                             outputStream.use { output ->
                                 input.copyTo(output)
                             }
                         }
-
-                        digestStream = DigestStream(file.inputStream(), digest)
-                        digestStream.copyTo(OutputStream.nullOutputStream())
-                    }
-
-                    if (!digestStream.validate(expectedHex)) {
-                        // TODO: toast
-                        Log.w("DL", "Hashsum missmatch - wanted ${expectedHex}")
-                        file.delete()
-                        continue
                     }
 
                     break
